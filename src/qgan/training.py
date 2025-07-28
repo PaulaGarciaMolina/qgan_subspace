@@ -69,18 +69,6 @@ class Training:
                 # --- Train Discriminator ---
                 # We need to detach the generator's output from the computation graph
                 # when training the discriminator to avoid backpropagating through the generator.
-                with torch.no_grad():
-                    total_gen_state = self.gen(self.initial_state_total)
-                final_gen_state_detached = get_final_gen_state_for_discriminator(total_gen_state)
-                
-                for _ in range(self.config.steps_dis):
-                    self.optimizer_dis.zero_grad()
-                    # The cost function for the discriminator aims to maximize the distance,
-                    # so we multiply by -1 to perform gradient descent (minimization).
-                    dis_loss = -1 * compute_cost(self.dis, self.final_target_state, final_gen_state_detached)
-                    dis_loss.backward()
-                    self.optimizer_dis.step()
-
                 # --- Train Generator ---
                 for _ in range(self.config.steps_gen):
                     self.optimizer_gen.zero_grad()
@@ -91,6 +79,18 @@ class Training:
                     gen_loss = compute_cost(self.dis, self.final_target_state, final_gen_state)
                     gen_loss.backward()
                     self.optimizer_gen.step()
+
+                with torch.no_grad():
+                    total_gen_state = self.gen(self.initial_state_total)
+                final_gen_state_detached = get_final_gen_state_for_discriminator(total_gen_state)
+
+                for _ in range(self.config.steps_dis):
+                    self.optimizer_dis.zero_grad()
+                    # The cost function for the discriminator aims to maximize the distance,
+                    # so we multiply by -1 to perform gradient descent (minimization).
+                    dis_loss = -1 * compute_cost(self.dis, self.final_target_state, final_gen_state_detached)
+                    dis_loss.backward()
+                    self.optimizer_dis.step()
                 
                 # --- Logging and Monitoring ---
                 if i % self.config.save_fid_and_loss_every_x_iter == 0:
