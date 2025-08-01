@@ -31,12 +31,6 @@ def compute_cost(dis, final_target_state: torch.Tensor, final_gen_state: torch.T
         float: the cost function.
     """
     A, B, psi, phi = dis.get_dis_matrices_rep()   
-    print('A \n', A.to_matrix().flatten()[:4])
-    print('B \n', B.to_matrix().flatten()[:4])
-    print('psi \n', psi.to_matrix().flatten()[:4])
-    print('phi \n', phi.to_matrix().flatten()[:4])
-    print('final_gen_state \n', final_gen_state.to_vector().flatten()[:4])
-
     # fmt: off
     A_final_gen_state = A @ final_gen_state
     B_final_gen_state = B @ final_gen_state

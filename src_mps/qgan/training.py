@@ -24,6 +24,7 @@ from qgan.target import get_final_target_state
 from tools.data.data_managers import print_and_log, save_fidelity_loss
 from tools.plot_hub import plt_fidelity_vs_iter
 from tools.qobjects.qgates import device # Import the configured device
+from tools.qobjects.mps import from_vector_qr
 from time import perf_counter as tpc
 from dataclasses import dataclass
 from typing import Optional, List
@@ -87,17 +88,13 @@ class Training:
                 
                 t0 = tpc()
                 # --- Train Generator ---
-                print('GENERATOR')
                 for _ in range(self.config.steps_gen):
                     self.optimizer_gen.zero_grad()
                     # Now, we use the generator's output directly to build the graph
                     total_gen_state = self.gen(self.initial_state_total)
                     final_gen_state = get_final_gen_state_for_discriminator(total_gen_state)
                     # The generator aims to minimize the cost function
-                    with torch.no_grad():
-                        final_gen_state_mps = MPS.from_vector(final_gen_state.flatten(), [2]*n, normalize=False)
-                    #final_gen_state_mps = MPS([t.detach().requires_grad_() for t in final_gen_state_mps._data])
-                    final_gen_state_mps = MPS(final_gen_state_mps._data)
+                    final_gen_state_mps = from_vector_qr(final_gen_state.flatten(), [2]*n, normalize=False)
                     gen_loss = compute_cost(self.dis, final_target_state_mps, final_gen_state_mps)
                     gen_loss.backward()
                     self.optimizer_gen.step()
@@ -106,7 +103,6 @@ class Training:
                     total_gen_state = self.gen(self.initial_state_total)
                 final_gen_state_detached = get_final_gen_state_for_discriminator(total_gen_state)
                 final_gen_state_detached_mps = MPS.from_vector(final_gen_state_detached.flatten(), [2]*n, normalize=False)
-                print('DISCRIMINATOR')
                 for _ in range(self.config.steps_dis):
                     self.optimizer_dis.zero_grad()
                     # The cost function for the discriminator aims to maximize the distance,
