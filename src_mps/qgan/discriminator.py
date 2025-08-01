@@ -15,8 +15,15 @@
 
 import torch
 import torch.nn as nn
+import numpy as np 
+from seemps.operators import MPO, MPOSum, MPOList
+#from seemps.truncate.simplify_mpo import simplify_mpo
+from seemps.truncate.simplify import SIMPLIFICATION_STRATEGY
+import scipy
 from config import CFG
 from tools.qobjects.qgates import I, X, Y, Z, device, COMPLEX_TYPE
+
+strategy = SIMPLIFICATION_STRATEGY.replace(normalize=False)
 
 class Discriminator(nn.Module):
     """
@@ -74,6 +81,11 @@ class Discriminator(nn.Module):
         ops = [I] * size
         ops[site] = op
         return self.kron_all(ops)
+    
+    def op_to_tensor_list(self, op, site, size, I):
+        ops = [I.reshape(1,2,2,1)] * size
+        ops[site] = op.reshape(1,2,2,1)
+        return ops
 
     def forward(self) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -82,42 +94,44 @@ class Discriminator(nn.Module):
         """
         device = self.alpha.device
         I = self.herm[0].to(device)
+        lamb = self.config.lamb
 
         # Build lifted local ops and sum them
-        psi_terms = []
-        phi_terms = []
-        psi_list = []
-        phi_list = []
+        psi_tensors = []
+        phi_tensors = []
+        psi_exp_tensors = []
+        phi_exp_tensors = []
+
         for i in range(self.size):
             # Local operator on site i
             psi_i = sum(self.alpha[i, j] * self.herm[j].to(device) for j in range(len(self.herm)))
             phi_i = sum(self.beta[i, j] * self.herm[j].to(device) for j in range(len(self.herm)))
 
-            # Lift to full Hilbert space
-            psi_lift = self.lift_to_full(psi_i, i, self.size, I)
-            phi_lift = self.lift_to_full(phi_i, i, self.size, I)
-
-            psi_terms.append(psi_lift)
-            phi_terms.append(phi_lift)
-            psi_list.append(psi_i)
-            phi_list.append(phi_i)
-            
-        return sum(psi_terms), sum(phi_terms), psi_list, phi_list
+            psi_tensors.append(MPO(self.op_to_tensor_list(psi_i, i, self.size, I)))
+            psi_exp_tensors.append(MPO(self.op_to_tensor_list(torch.matrix_exp((1.0 / lamb) * psi_i), i, self.size, I)))
+            phi_tensors.append(MPO(self.op_to_tensor_list(phi_i, i, self.size, I)))
+            phi_exp_tensors.append(MPO(self.op_to_tensor_list(torch.matrix_exp((-1.0 / lamb) * phi_i), i, self.size, I)))
+       
+        return MPOSum(psi_tensors).join(), MPOSum(phi_tensors).join(), psi_exp_tensors, phi_exp_tensors
     
     def get_dis_matrices_rep(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Computes the matrices A and B from psi and phi. These are used in the cost function.
         """
-        psi, phi, psi_list, phi_list = self.forward()
+        psi, phi, psi_exp_tensors, phi_exp_tensors = self.forward()
         
         # lamb is a hyperparameter from the config
-        lamb = self.config.lamb
         
         # A = expm(-1/lamb * phi)
-        A = self.kron_all([torch.matrix_exp((-1.0 / lamb) * phi_i) for phi_i in phi_list])
+        A = MPOList(psi_exp_tensors).join()
+        #A = simplify_mpo(MPOList(psi_exp_tensors).join(), strategy=strategy)
         # B = expm(1/lamb * psi)
-        B = self.kron_all([torch.matrix_exp((1.0 / lamb) * psi_i) for psi_i in psi_list])
-
+        B = MPOList(phi_exp_tensors).join()
+        #B = simplify_mpo(MPOList(phi_exp_tensors).join(), strategy=strategy)
+        A.strategy = A.strategy.replace(simplify=0, method=0)
+        B.strategy = B.strategy.replace(simplify=0, method=0)
+        phi.strategy = phi.strategy.replace(simplify=0, method=0)
+        psi.strategy = psi.strategy.replace(simplify=0, method=0)
         return A, B, psi, phi
     
     def get_dis_matrices_rep_old(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
