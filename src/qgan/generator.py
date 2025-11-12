@@ -20,6 +20,7 @@ from config import CFG
 from tools.qobjects.qcircuit import QuantumCircuit
 from tools.qobjects.qgates import QuantumGate, Identity
 import os
+import pickle
 from qgan.ansatz import ZZ_X_Z_circuit, XX_YY_ZZ_Z_circuit
 
 class Generator(nn.Module):
@@ -51,42 +52,47 @@ class Generator(nn.Module):
         return self.ansatz(total_input_state.flatten()).to(total_input_state.device)
 
     def load_model_params(self, file_path: str):
-        """Loads generator parameters from a saved state_dict."""
+        """Load generator parameters from a torch file."""
         try:
-            # Load the entire saved dictionary, which includes config
-            saved_data = torch.load(file_path)
-            saved_config = saved_data.get('config', {})
-            
-            # --- Perform compatibility checks ---
-            if saved_config.get('target_size') != self.target_size:
+            saved_data = torch.load(file_path, map_location="cpu")
+
+            saved_config = saved_data.get("config", {})
+            theta = saved_data.get("theta", None)
+            if theta is None:
+                raise ValueError("No theta found in checkpoint.")
+
+            # Compatibility checks
+            if saved_config.get("target_size") != self.target_size:
                 raise ValueError("Incompatible target size.")
-            if saved_config.get('target_hamiltonian') != self.target_hamiltonian:
+            if saved_config.get("target_hamiltonian") != self.target_hamiltonian:
                 raise ValueError("Incompatible target Hamiltonian.")
-            if saved_config.get('ansatz_type') != self.ansatz_type:
+            if saved_config.get("ansatz_type") != self.ansatz_type:
                 raise ValueError("Incompatible ansatz type.")
-            if saved_config.get('layers') != self.layers:
+            if saved_config.get("layers") != self.layers:
                 raise ValueError("Incompatible number of layers.")
-            
-            # Load the state dictionary
-            self.load_state_dict(saved_data['model_state_dict'])
+
+            # Load θ into the model
+            with torch.no_grad():
+                self.ansatz.theta.copy_(theta)
+
             print(f"Generator parameters loaded successfully from {file_path}")
 
         except Exception as e:
             print(f"ERROR: Could not load generator model: {e}")
 
     def save_model_params(self, file_path: str):
-        """Saves generator parameters and config to a file."""
+        """Save generator parameters and config safely."""
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
-        # Save both the model's state_dict and its configuration
         save_data = {
-            'model_state_dict': self.state_dict(),
-            'config': {
-                'target_size': self.target_size,
-                'target_hamiltonian': self.target_hamiltonian,
-                'ansatz_type': self.ansatz_type,
-                'layers': self.layers,
-            }
+            "theta": self.ansatz.theta.detach().cpu(),
+            "config": {
+                "target_size": self.target_size,
+                "target_hamiltonian": self.target_hamiltonian,
+                "ansatz_type": self.ansatz_type,
+                "layers": self.layers,
+            },
         }
+
         torch.save(save_data, file_path)
-        print(f"Generator model saved to {file_path}")
+        print(f"Generator parameters saved to {file_path}")

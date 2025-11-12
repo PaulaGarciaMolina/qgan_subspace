@@ -17,6 +17,7 @@ import torch
 import torch.nn as nn
 from config import CFG
 from tools.qobjects.qgates import I, X, Y, Z, device, COMPLEX_TYPE
+import os 
 
 class Discriminator(nn.Module):
     """
@@ -80,36 +81,50 @@ class Discriminator(nn.Module):
 
         return A, B, psi, phi
         
+    def save_model_params(self, file_path: str):
+        """Safely saves discriminator parameters and configuration."""
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        save_data = {
+            "alpha": self.alpha.detach().cpu(),
+            "beta": self.beta.detach().cpu(),
+            "config": {
+                "target_size": self.target_size,
+                "target_hamiltonian": self.target_hamiltonian,
+                "ancilla_mode": self.ancilla_mode,
+            },
+        }
+
+        torch.save(save_data, file_path)
+        print(f"Discriminator parameters saved to {file_path}")
+
     def load_model_params(self, file_path: str):
-        """Loads discriminator parameters from a saved state_dict."""
+        """Safely loads discriminator parameters from a saved file."""
         try:
-            # Load the entire saved dictionary, which includes config
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"File not found: {file_path}")
+
             saved_data = torch.load(file_path, map_location=device)
-            saved_config = saved_data.get('config', {})
-            
-            # --- Perform compatibility checks ---
-            if saved_config.get('target_size') != self.target_size:
+            saved_config = saved_data.get("config", {})
+
+            # --- Compatibility checks ---
+            if saved_config.get("target_size") != self.target_size:
                 raise ValueError("Incompatible target size.")
-            if saved_config.get('target_hamiltonian') != self.target_hamiltonian:
+            if saved_config.get("target_hamiltonian") != self.target_hamiltonian:
                 raise ValueError("Incompatible target Hamiltonian.")
-            if saved_config.get('ancilla_mode') != self.ancilla_mode:
+            if saved_config.get("ancilla_mode") != self.ancilla_mode:
                 raise ValueError("Incompatible ancilla mode.")
 
-            self.load_state_dict(saved_data['model_state_dict'])
+            # --- Load weights ---
+            alpha = saved_data.get("alpha")
+            beta = saved_data.get("beta")
+            if alpha is None or beta is None:
+                raise ValueError("Checkpoint missing alpha or beta parameters.")
+
+            with torch.no_grad():
+                self.alpha.copy_(alpha)
+                self.beta.copy_(beta)
+
             print(f"Discriminator parameters loaded successfully from {file_path}")
 
         except Exception as e:
             print(f"ERROR: Could not load discriminator model: {e}")
-
-    def save_model_params(self, file_path: str):
-        """Saves discriminator parameters and config to a file."""
-        save_data = {
-            'model_state_dict': self.state_dict(),
-            'config': {
-                'target_size': self.target_size,
-                'target_hamiltonian': self.target_hamiltonian,
-                'ancilla_mode': self.ancilla_mode,
-            }
-        }
-        torch.save(save_data, file_path)
-        print(f"Discriminator model saved to {file_path}")
