@@ -119,10 +119,26 @@ class Discriminator(nn.Module):
             beta = saved_data.get("beta")
             if alpha is None or beta is None:
                 raise ValueError("Checkpoint missing alpha or beta parameters.")
-
             with torch.no_grad():
-                self.alpha.copy_(alpha)
-                self.beta.copy_(beta)
+                for name, current, loaded in [
+                    ("alpha", self.alpha, alpha),
+                    ("beta", self.beta, beta)
+                ]:
+                    curr_n = current.shape[0]
+                    load_n = loaded.shape[0]
+
+                    if load_n < curr_n:
+                        print(f"Expanding {name}: {load_n} → {curr_n}")
+                        padded = torch.zeros_like(current)
+                        padded[:load_n, :] = loaded
+                        current.copy_(padded)
+
+                    elif load_n > curr_n:
+                        print(f"Trimming {name}: {load_n} → {curr_n}")
+                        current.copy_(loaded[:curr_n, :])
+
+                    else:
+                        current.copy_(loaded)
 
             print(f"Discriminator parameters loaded successfully from {file_path}")
 

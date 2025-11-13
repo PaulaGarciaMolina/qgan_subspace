@@ -61,7 +61,7 @@ class Generator(nn.Module):
             if theta is None:
                 raise ValueError("No theta found in checkpoint.")
 
-            # Compatibility checks
+            # --- Compatibility checks ---
             if saved_config.get("target_size") != self.target_size:
                 raise ValueError("Incompatible target size.")
             if saved_config.get("target_hamiltonian") != self.target_hamiltonian:
@@ -71,11 +71,24 @@ class Generator(nn.Module):
             if saved_config.get("layers") != self.layers:
                 raise ValueError("Incompatible number of layers.")
 
-            # Load θ into the model
             with torch.no_grad():
-                self.ansatz.theta.copy_(theta)
+                current_n = self.ansatz.n_params
+                saved_n = len(theta)
 
-            print(f"Generator parameters loaded successfully from {file_path}")
+                if saved_n < current_n:
+                    print(f"Expanding θ: {saved_n} → {current_n}")
+                    padded = torch.zeros(current_n, dtype=theta.dtype)
+                    padded[:saved_n] = theta
+                    self.ansatz.theta.copy_(padded)
+
+                elif saved_n > current_n:
+                    print(f"Trimming θ: {saved_n} → {current_n}")
+                    self.ansatz.theta.copy_(theta[:current_n])
+
+                else:
+                    self.ansatz.theta.copy_(theta)
+
+                    print(f"Generator parameters loaded successfully from {file_path}")
 
         except Exception as e:
             print(f"ERROR: Could not load generator model: {e}")
